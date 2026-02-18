@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: Connoisseur (Simple)
+## Notes: Turtle WoW 1.12 consumable helper (no minimap button)
+## Version: 3.3
+## SavedVariables: CCV_Settings, CCV_Ignore
+
+Data_Vanilla.lua
+Core.lua
