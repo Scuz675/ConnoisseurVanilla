@@ -1,8 +1,9 @@
 -- ConnoisseurVanilla (Turtle WoW 1.12)
--- FINAL SMART BUILD:
+-- FINAL SMART + LEVEL-AWARE:
 --   * Auto-detects Food, Drink, Health Potions, Mana Potions via tooltip (no DB maintenance)
 --   * Option B: Prefer "Well Fed" foods when buff is missing
---   * Bandages remain DB/keyword-based (safe) and are used by "Bandage" macro via scan
+--   * LEVEL CHECK: skips items that require a higher level than the player
+--   * Bandages keyword scan ("Bandage")
 --   * No minimap button; hardcoded macro icons via macro icon list (iconIndex), per Turtle wiki
 
 CCV_Settings = CCV_Settings or { autoUpdate=true }
@@ -10,30 +11,21 @@ CCV_Ignore = CCV_Ignore or {}
 
 local function msg(s) DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffCCV|r "..tostring(s)) end
 
-local CCV_Macros = {
-  food    = "Food",
-  water   = "Water",
-  bandage = "Bandage",
-  hpotion = "Health Potion",
-  mpotion = "Mana Potion",
-}
+local CCV_Macros = { food="Food", water="Water", bandage="Bandage", hpotion="Health Potion", mpotion="Mana Potion" }
 
--- Macro icon texture names (must exist in macro icon list)
 local CCV_IconTextureName = {
-  bandage = "Spell_Holy_SealOfSacrifice",
-  food    = "Spell_Misc_Food",
-  water   = "Spell_Misc_Drink",
-  hpotion = "Spell_Nature_Strength",
-  mpotion = "Spell_Misc_ConjureManaJewel",
+  bandage="Spell_Holy_SealOfSacrifice",
+  food="Spell_Misc_Food",
+  water="Spell_Misc_Drink",
+  hpotion="Spell_Nature_Strength",
+  mpotion="Spell_Misc_ConjureManaJewel",
 }
 
--- Localized "Well Fed" buff names (for player buff check)
 local CCV_WellFedNames = {
   ["Well Fed"]=true, ["Bien nourri"]=true, ["Wohlgenährt"]=true, ["Bien alimentado"]=true, ["Ben nutrito"]=true,
   ["Хорошо накормлен"]=true, ["잘 먹음"]=true, ["吃得好"]=true, ["吃飽喝足"]=true,
 }
 
--- Tooltip scanner (Vanilla-safe)
 local CCV_Tip = CreateFrame("GameTooltip","CCV_ScanTip",UIParent,"GameTooltipTemplate")
 CCV_Tip:SetOwner(UIParent,"ANCHOR_NONE")
 
@@ -61,25 +53,33 @@ local function PlayerHasWellFed()
   return false
 end
 
--- Patterns (use string.find captures; Turtle 1.12 may not have string.match)
+-- Patterns (string.find captures)
 local PAT_RESTORE_HEALTH_SINGLE = "Restores%s+([%d%.]+)%s+health"
 local PAT_RESTORE_HEALTH_RANGE  = "Restores%s+([%d%.]+)%s+to%s+([%d%.]+)%s+health"
 local PAT_RESTORE_MANA_SINGLE   = "Restores%s+([%d%.]+)%s+mana"
 local PAT_RESTORE_MANA_RANGE    = "Restores%s+([%d%.]+)%s+to%s+([%d%.]+)%s+mana"
+local PAT_REQ_LEVEL             = "Requires%s+Level%s+(%d+)"
 
 local function AvgRange(a,b)
   if not a or not b then return nil end
   return (a+b)/2
 end
 
--- Classify by tooltip:
---   food:  Restores X health (and no mana)
---   water: Restores X mana
---   hpotion/mpotion: "Potion" in name AND restores health/mana (range or single)
---   wellFed: "Well Fed" present in any line
+local function GetRequiredLevelFromTip()
+  for i=2,12 do
+    local line = TipLine(i)
+    if not line then break end
+    local _,_,lvl = string.find(line, PAT_REQ_LEVEL)
+    if lvl then return tonumber(lvl) end
+  end
+  return nil
+end
+
 local function ClassifyByTooltip(bag, slot)
   CCV_Tip:ClearLines()
   CCV_Tip:SetBagItem(bag, slot)
+
+  local reqLevel = GetRequiredLevelFromTip()
 
   local name = TipLine(1)
   local isPotion = (name and string.find(name, "Potion", 1, true)) and true or false
@@ -94,8 +94,7 @@ local function ClassifyByTooltip(bag, slot)
     if not restoresHealth then
       local _,_,a,b = string.find(line, PAT_RESTORE_HEALTH_RANGE)
       if a and b then
-        local na, nb = ParseNum(a), ParseNum(b)
-        restoresHealth = AvgRange(na, nb)
+        restoresHealth = AvgRange(ParseNum(a), ParseNum(b))
       else
         local _,_,h = string.find(line, PAT_RESTORE_HEALTH_SINGLE)
         if h then restoresHealth = ParseNum(h) end
@@ -105,47 +104,46 @@ local function ClassifyByTooltip(bag, slot)
     if not restoresMana then
       local _,_,a,b = string.find(line, PAT_RESTORE_MANA_RANGE)
       if a and b then
-        local na, nb = ParseNum(a), ParseNum(b)
-        restoresMana = AvgRange(na, nb)
+        restoresMana = AvgRange(ParseNum(a), ParseNum(b))
       else
         local _,_,m = string.find(line, PAT_RESTORE_MANA_SINGLE)
         if m then restoresMana = ParseNum(m) end
       end
     end
 
-    if string.find(line, "Well Fed", 1, true) then
-      wellFed = true
-    end
+    if string.find(line, "Well Fed", 1, true) then wellFed = true end
   end
 
-  -- Potions (only if item name contains "Potion" to avoid food/drink false-positives)
+  -- Potions only if name contains "Potion" (avoids food/drink false positives)
   if isPotion then
     if restoresHealth and (not restoresMana or restoresMana==0) then
-      return "hpotion", restoresHealth, false
+      return "hpotion", restoresHealth, false, reqLevel
     end
     if restoresMana then
-      return "mpotion", restoresMana, false
+      return "mpotion", restoresMana, false, reqLevel
     end
   end
 
-  -- Food/Drink (for water, mana restoration is the key)
+  -- Drink (mana restore)
   if restoresMana then
-    return "water", restoresMana, false
-  end
-  if restoresHealth and not restoresMana then
-    return "food", restoresHealth, wellFed
+    return "water", restoresMana, false, reqLevel
   end
 
-  return nil, nil, false
+  -- Food (health restore)
+  if restoresHealth and not restoresMana then
+    return "food", restoresHealth, wellFed, reqLevel
+  end
+
+  return nil, nil, false, reqLevel
 end
 
--- Bandage detection (keyword; safest for 1.12)
 local function LooksLikeBandage(bag, slot)
   CCV_Tip:ClearLines()
   CCV_Tip:SetBagItem(bag, slot)
   local name = TipLine(1)
-  if not name then return false end
-  return string.find(name, "Bandage", 1, true) and true or false
+  if not name then return false, nil end
+  local reqLevel = GetRequiredLevelFromTip()
+  return string.find(name, "Bandage", 1, true) and true or false, reqLevel
 end
 
 local function GetItemIDFromLink(link)
@@ -154,7 +152,6 @@ local function GetItemIDFromLink(link)
   return id and tonumber(id) or nil
 end
 
--- Icon index resolver (macro icon list)
 local CCV_ResolvedIconIndex = {}
 local function ResolveIconIndex(kind)
   if CCV_ResolvedIconIndex[kind] then return CCV_ResolvedIconIndex[kind] end
@@ -177,8 +174,14 @@ local function FoodScore(base, isWellFedFood, playerHasWellFed)
   return base
 end
 
+local function IsUsableByLevel(reqLevel, playerLevel)
+  if not reqLevel then return true end
+  return reqLevel <= playerLevel
+end
+
 local function ScanBags()
   local hasWellFed = PlayerHasWellFed()
+  local playerLevel = UnitLevel("player") or 1
   local best = { food={score=-1}, water={score=-1}, bandage={score=-1}, hpotion={score=-1}, mpotion={score=-1} }
 
   for bag=0,4 do
@@ -189,22 +192,24 @@ local function ScanBags()
 
       if id and not CCV_Ignore[id] then
         local entry = (CCV_DATA and CCV_DATA.items and CCV_DATA.items[id]) or nil
-        local kind, score, wellFed = nil, nil, false
+        local kind, score, wellFed, reqLevel = nil, nil, false, nil
 
         if entry then
           kind = entry.kind
           score = tonumber(entry.score) or 0
           wellFed = entry.wellFed and true or false
+          -- If you want to override required level, add entry.reqLevel
+          reqLevel = entry.reqLevel
         else
-          -- auto classify (food/water/potions)
-          kind, score, wellFed = ClassifyByTooltip(bag, slot)
-          -- bandages keyword fallback
-          if not kind and LooksLikeBandage(bag, slot) then
-            kind, score, wellFed = "bandage", 1, false
+          kind, score, wellFed, reqLevel = ClassifyByTooltip(bag, slot)
+          if not kind then
+            local isBandage
+            isBandage, reqLevel = LooksLikeBandage(bag, slot)
+            if isBandage then kind, score, wellFed = "bandage", 1, false end
           end
         end
 
-        if kind and best[kind] and score then
+        if kind and best[kind] and score and IsUsableByLevel(reqLevel, playerLevel) then
           local s = score
           if kind=="food" then s = FoodScore(score, wellFed, hasWellFed) end
           if s > best[kind].score then
@@ -226,17 +231,10 @@ function CCV_Use(kind)
   UseContainerItem(pick.bag, pick.slot)
 
   if kind=="bandage" then
-    if UnitExists("target") and UnitIsFriend("player","target") then
-      SpellTargetUnit("target")
-    else
-      SpellTargetUnit("player")
-    end
+    if UnitExists("target") and UnitIsFriend("player","target") then SpellTargetUnit("target") else SpellTargetUnit("player") end
   end
 end
 
--- Turtle wiki macro API:
---   CreateMacro(name, iconIndex, body, local)
---   EditMacro(index, name, iconIndex, body, local)
 local function SetMacro(kind, body)
   local name = CCV_Macros[kind]
   local iconIndex = ResolveIconIndex(kind) or 1
