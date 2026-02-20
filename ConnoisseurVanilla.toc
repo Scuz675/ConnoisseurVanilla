@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: Connoisseur (Final Smart + Level)
 ## Notes: Turtle WoW 1.12. Auto-detects food/drink/potions via tooltip; prefers Well Fed foods when buff missing; skips items above your level.
-## Version: 4.1
+## Version: 4.2
 ## SavedVariables: CCV_Settings, CCV_Ignore
 
 Data_Vanilla.lua

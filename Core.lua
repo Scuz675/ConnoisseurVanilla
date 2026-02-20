@@ -6,10 +6,21 @@
 --   * Bandages keyword scan ("Bandage")
 --   * No minimap button; hardcoded macro icons via macro icon list (iconIndex), per Turtle wiki
 
-CCV_Settings = CCV_Settings or { autoUpdate=true }
+CCV_Settings = CCV_Settings or { autoUpdate=true, debug=false }
 CCV_Ignore = CCV_Ignore or {}
 
 local function msg(s) DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffCCV|r "..tostring(s)) end
+
+local function dmsg(s)
+  if CCV_Settings and CCV_Settings.debug then msg(s) end
+end
+
+local function SafeItemNameFromBag(bag, slot)
+  CCV_Tip:ClearLines()
+  CCV_Tip:SetBagItem(bag, slot)
+  local name = TipLine(1)
+  return name or "?"
+end
 
 local CCV_Macros = { food="Food", water="Water", bandage="Bandage", hpotion="Health Potion", mpotion="Mana Potion" }
 
@@ -179,6 +190,26 @@ local function IsUsableByLevel(reqLevel, playerLevel)
   return reqLevel <= playerLevel
 end
 
+
+local function DebugReportInventory()
+  if not (CCV_Settings and CCV_Settings.debug) then return end
+  local best = ScanBags()
+  local function report(kind, label)
+    local pick = best[kind]
+    if pick and pick.bag then
+      local nm = SafeItemNameFromBag(pick.bag, pick.slot)
+      dmsg(label..": "..nm.." (bag "..pick.bag.." slot "..pick.slot..")")
+    else
+      dmsg(label..": (none)")
+    end
+  end
+  dmsg("Detected consumables (best usable):")
+  report("food", "Food")
+  report("water", "Drink")
+  report("hpotion", "Health Potion")
+  report("mpotion", "Mana Potion")
+end
+
 local function ScanBags()
   local hasWellFed = PlayerHasWellFed()
   local playerLevel = UnitLevel("player") or 1
@@ -257,7 +288,10 @@ end
 local f=CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("BAG_UPDATE")
-f:SetScript("OnEvent", function() if CCV_Settings.autoUpdate then UpdateMacros() end end)
+f:SetScript("OnEvent", function()
+  if CCV_Settings.autoUpdate then UpdateMacros() end
+  if event=="PLAYER_LOGIN" then DebugReportInventory() end
+end)
 
 SLASH_CCV1="/ccv"
 SlashCmdList["CCV"]=function(m)
@@ -267,7 +301,14 @@ SlashCmdList["CCV"]=function(m)
     msg("Macros updated.")
   elseif m=="wellfed" then
     msg("Well Fed: "..tostring(PlayerHasWellFed()))
+  elseif m=="debug" then
+    CCV_Settings.debug = not CCV_Settings.debug
+    msg("Debug: "..tostring(CCV_Settings.debug))
+    if CCV_Settings.debug then DebugReportInventory() end
+  elseif m=="report" then
+    DebugReportInventory()
   else
-    msg("Commands: /ccv update | /ccv wellfed")
+    msg("Commands: /ccv update | /ccv wellfed | /ccv debug | /ccv report")
   end
+end
 end
