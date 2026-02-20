@@ -15,12 +15,6 @@ local function dmsg(s)
   if CCV_Settings and CCV_Settings.debug then msg(s) end
 end
 
-local function SafeItemNameFromBag(bag, slot)
-  CCV_Tip:ClearLines()
-  CCV_Tip:SetBagItem(bag, slot)
-  local name = TipLine(1)
-  return name or "?"
-end
 
 local CCV_Macros = { food="Food", water="Water", bandage="Bandage", hpotion="Health Potion", mpotion="Mana Potion" }
 
@@ -43,6 +37,14 @@ CCV_Tip:SetOwner(UIParent,"ANCHOR_NONE")
 local function TipLine(i)
   local fs = _G["CCV_ScanTipTextLeft"..i]
   return fs and fs:GetText() or nil
+end
+
+local function SafeItemNameFromBag(bag, slot)
+  CCV_Tip:ClearLines()
+  CCV_Tip:SetBagItem(bag, slot)
+  CCV_Tip:Show()
+  local name = TipLine(1)
+  return name or "?"
 end
 
 local function ParseNum(s)
@@ -89,6 +91,7 @@ end
 local function ClassifyByTooltip(bag, slot)
   CCV_Tip:ClearLines()
   CCV_Tip:SetBagItem(bag, slot)
+  CCV_Tip:Show()
 
   local reqLevel = GetRequiredLevelFromTip()
 
@@ -125,6 +128,22 @@ local function ClassifyByTooltip(bag, slot)
     if string.find(line, "Well Fed", 1, true) then wellFed = true end
   end
 
+  -- Fallback: some Turtle tooltips wrap or prefix text; try looser "number health/mana" scan
+  if not restoresHealth or not restoresMana then
+    for i=2,12 do
+      local line = TipLine(i)
+      if not line then break end
+      if not restoresHealth then
+        local _,_,h = string.find(line, "([%d%.]+)%s+health")
+        if h then restoresHealth = ParseNum(h) end
+      end
+      if not restoresMana then
+        local _,_,m = string.find(line, "([%d%.]+)%s+mana")
+        if m then restoresMana = ParseNum(m) end
+      end
+    end
+  end
+
   -- Potions only if name contains "Potion" (avoids food/drink false positives)
   if isPotion then
     if restoresHealth and (not restoresMana or restoresMana==0) then
@@ -151,6 +170,7 @@ end
 local function LooksLikeBandage(bag, slot)
   CCV_Tip:ClearLines()
   CCV_Tip:SetBagItem(bag, slot)
+  CCV_Tip:Show()
   local name = TipLine(1)
   if not name then return false, nil end
   local reqLevel = GetRequiredLevelFromTip()
@@ -191,24 +211,6 @@ local function IsUsableByLevel(reqLevel, playerLevel)
 end
 
 
-local function DebugReportInventory()
-  if not (CCV_Settings and CCV_Settings.debug) then return end
-  local best = ScanBags()
-  local function report(kind, label)
-    local pick = best[kind]
-    if pick and pick.bag then
-      local nm = SafeItemNameFromBag(pick.bag, pick.slot)
-      dmsg(label..": "..nm.." (bag "..pick.bag.." slot "..pick.slot..")")
-    else
-      dmsg(label..": (none)")
-    end
-  end
-  dmsg("Detected consumables (best usable):")
-  report("food", "Food")
-  report("water", "Drink")
-  report("hpotion", "Health Potion")
-  report("mpotion", "Mana Potion")
-end
 
 local function ScanBags()
   local hasWellFed = PlayerHasWellFed()
@@ -233,6 +235,10 @@ local function ScanBags()
           reqLevel = entry.reqLevel
         else
           kind, score, wellFed, reqLevel = ClassifyByTooltip(bag, slot)
+          if id then
+            local _,_,_,_,_,_,_,_,_,_,minLevel = GetItemInfo(id)
+            if minLevel and minLevel>0 then reqLevel = minLevel end
+          end
           if not kind then
             local isBandage
             isBandage, reqLevel = LooksLikeBandage(bag, slot)
@@ -253,6 +259,25 @@ local function ScanBags()
 
   return best
 end
+
+local function DebugReportInventory()
+  local best = ScanBags()
+  local function report(kind, label)
+    local pick = best[kind]
+    if pick and pick.bag then
+      local nm = SafeItemNameFromBag(pick.bag, pick.slot)
+      msg(label..": "..nm.." (bag "..pick.bag.." slot "..pick.slot..")")
+    else
+      msg(label..": (none)")
+    end
+  end
+  msg("Detected consumables (best usable):")
+  report("food", "Food")
+  report("water", "Drink")
+  report("hpotion", "Health Potion")
+  report("mpotion", "Mana Potion")
+end
+
 
 function CCV_Use(kind)
   local best = ScanBags()
@@ -301,14 +326,9 @@ SlashCmdList["CCV"]=function(m)
     msg("Macros updated.")
   elseif m=="wellfed" then
     msg("Well Fed: "..tostring(PlayerHasWellFed()))
-  elseif m=="debug" then
-    CCV_Settings.debug = not CCV_Settings.debug
-    msg("Debug: "..tostring(CCV_Settings.debug))
-    if CCV_Settings.debug then DebugReportInventory() end
   elseif m=="report" then
     DebugReportInventory()
   else
-    msg("Commands: /ccv update | /ccv wellfed | /ccv debug | /ccv report")
+    msg("Commands: /ccv update | /ccv wellfed | /ccv report")
   end
-end
 end
