@@ -67,10 +67,10 @@ local function PlayerHasWellFed()
 end
 
 -- Patterns (string.find captures)
-local PAT_RESTORE_HEALTH_SINGLE = "Restores%s+([%d%.]+)%s+health"
-local PAT_RESTORE_HEALTH_RANGE  = "Restores%s+([%d%.]+)%s+to%s+([%d%.]+)%s+health"
-local PAT_RESTORE_MANA_SINGLE   = "Restores%s+([%d%.]+)%s+mana"
-local PAT_RESTORE_MANA_RANGE    = "Restores%s+([%d%.]+)%s+to%s+([%d%.]+)%s+mana"
+local PAT_RESTORE_HEALTH_SINGLE = "([%d%.]+)%s+health"
+local PAT_RESTORE_HEALTH_RANGE  = "([%d%.]+)%s+to%s+([%d%.]+)%s+health"
+local PAT_RESTORE_MANA_SINGLE   = "([%d%.]+)%s+mana"
+local PAT_RESTORE_MANA_RANGE    = "([%d%.]+)%s+to%s+([%d%.]+)%s+mana"
 local PAT_REQ_LEVEL             = "Requires%s+Level%s+(%d+)"
 
 local function AvgRange(a,b)
@@ -96,7 +96,8 @@ local function ClassifyByTooltip(bag, slot)
   local reqLevel = GetRequiredLevelFromTip()
 
   local name = TipLine(1)
-  local isPotion = (name and string.find(name, "Potion", 1, true)) and true or false
+  local lname = name and string.lower(name) or nil
+  local isPotion = (lname and string.find(lname, "potion", 1, true)) and true or false
 
   local restoresHealth, restoresMana = nil, nil
   local wellFed = false
