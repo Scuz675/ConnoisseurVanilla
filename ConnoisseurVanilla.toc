@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: Connoisseur (Final Pro)
 ## Notes: Turtle WoW 1.12. Auto-detects consumables; combat-aware; level-aware; Well Fed priority; smart potion sizing.
-## Version: 5.0
+## Version: 5.1
 ## SavedVariables: CCV_Settings, CCV_Ignore
 
 Data_Vanilla.lua

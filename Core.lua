@@ -353,11 +353,26 @@ local function SetMacro(kind, body)
 end
 
 local function UpdateMacros()
-  SetMacro("food","/run CCV_Use(\"food\")")
-  SetMacro("water","/run CCV_Use(\"water\")")
-  SetMacro("bandage","/run CCV_Use(\"bandage\")")
-  SetMacro("hpotion","/run CCV_Use(\"hpotion\")")
-  SetMacro("mpotion","/run CCV_Use(\"mpotion\")")
+  -- If SuperCleveRoidMacros is loaded, we can use #showtooltip and point it at the current best item.
+  local hasSuper = IsAddOnLoaded and IsAddOnLoaded("SuperCleveRoidMacros")
+
+  local best = nil
+  if hasSuper then
+    best = ScanBest() -- get current best picks once
+  end
+
+  local function Body(kind)
+    if hasSuper and best and best[kind] and best[kind].id then
+      return "#showtooltip item:"..best[kind].id.."\n/run CCV_Use(\""..kind.."\")"
+    end
+    return "/run CCV_Use(\""..kind.."\")"
+  end
+
+  SetMacro("food",   Body("food"))
+  SetMacro("water",  Body("water"))
+  SetMacro("bandage","/run CCV_Use(\"bandage\")") -- keep vanilla-safe
+  SetMacro("hpotion",Body("hpotion"))
+  SetMacro("mpotion",Body("mpotion"))
 end
 
 local function SafeItemNameFromBag(bag, slot)

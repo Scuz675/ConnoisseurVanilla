@@ -46,3 +46,8 @@ Then `/reload`.
 ## Notes
 - Macro icons are set using the Turtle macro icon list (iconIndex) for compatibility.
 - If you want to force/override an item’s classification, add it to `Data_Vanilla.lua` in `CCV_DATA.items`.
+
+
+## #showtooltip integration
+If **SuperCleveRoidMacros** is loaded, macros are written with `#showtooltip item:<id>` for the currently best detected item.
+If it is not loaded, macros remain vanilla-safe without `#showtooltip`.
