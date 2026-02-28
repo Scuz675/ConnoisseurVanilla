@@ -17,7 +17,7 @@ CCV_Ignore = CCV_Ignore or {}
 
 local function msg(s) DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffCCV|r "..tostring(s)) end
 
-local CCV_Macros = { food="Food", water="Water", bandage="Bandage", hpotion="Health Potion", mpotion="Mana Potion" }
+local CCV_Macros = { food="Food", water="Drink", bandage="Bandage", hpotion="Health", mpotion="Mana" }
 
 local CCV_IconTextureName = {
   bandage="Spell_Holy_SealOfSacrifice",
@@ -103,6 +103,7 @@ local function ScanTooltipBasics(bag, slot)
 
   local name = TipLine(1)
   local reqLevel = nil
+  local isRecipe = false
   local conjured = false
 
   local restoresHealth, restoresMana = nil, nil
@@ -145,15 +146,26 @@ local function ScanTooltipBasics(bag, slot)
       end
     end
   end
+  if not isRecipe then
+    for ti=2,8 do
+      local tl = TipLine(ti)
+      if not tl then break end
+      if string.find(tl, "Teaches you", 1, true) then
+        isRecipe = true
+        break
+      end
+    end
+  end
 
   -- Prefer minLevel from GetItemInfo if available
   local id = GetItemIDFromLink(GetContainerItemLink(bag,slot))
   if id then
-    local _,_,_,_,_,_,_,_,_,_,minLevel = GetItemInfo(id)
+    local _,_,_,_,_,itemType,_,_,_,_,minLevel = GetItemInfo(id)
+    if itemType and itemType=="Recipe" then isRecipe = true end
     if minLevel and minLevel>0 then reqLevel = minLevel end
   end
 
-  return name, reqLevel, conjured, restoresHealth, restoresMana, wellFed
+  return name, reqLevel, conjured, restoresHealth, restoresMana, wellFed, isRecipe
 end
 
 local function IsUsableByLevel(reqLevel, playerLevel)
@@ -208,6 +220,7 @@ local function GatherCandidates()
         local entry = (CCV_DATA and CCV_DATA.items and CCV_DATA.items[id]) or nil
 
         local kind, score, wellFed, reqLevel, conjured = nil, nil, false, nil, false
+        local isHealthstone = false
 
         if entry then
           kind = entry.kind
@@ -216,14 +229,42 @@ local function GatherCandidates()
           reqLevel = entry.reqLevel
           conjured = entry.conjured and true or false
         else
-          local name, rl, cj, rh, rm, wf = ScanTooltipBasics(bag, slot)
+          local name, rl, cj, rh, rm, wf, isRecipe = ScanTooltipBasics(bag, slot)
+          -- Exclude recipes / teaching items (e.g., "Recipe: ...", "Use: Teaches you how to ...")
+          local itemName, itemLink = name, link
+          local itemType = nil
+          if id then
+            local _,_,_,_,_,itype = GetItemInfo(id)
+            itemType = itype
+          end
+          if (itemType and itemType=="Recipe") or (itemName and string.find(itemName, "Recipe:", 1, true)) then
+            kind, score = nil, nil
+          else
+            -- Some recipes don't include "Recipe:" in name in some locales; detect via tooltip "Teaches you"
+            for ti=2,8 do
+              local tl = TipLine(ti)
+              if not tl then break end
+              if string.find(tl, "Teaches you", 1, true) then
+                kind, score = nil, nil
+                break
+              end
+            end
+          end
+
           reqLevel = rl
           conjured = cj
           wellFed = wf
+          if isRecipe then
+            kind, score = nil, nil
+            rh, rm = nil, nil
+          end
           local lname = name and string.lower(name) or ""
           local isPotion = (name and string.find(lname,"potion",1,true)) and true or false
+          isHealthstone = (lname and string.find(lname,"healthstone",1,true)) and true or false
 
-          if isPotion then
+          if isHealthstone then
+            if rh then kind, score = "hpotion", rh end
+          elseif isPotion then
             if rh and (not rm or rm==0) then
               kind, score = "hpotion", rh
             elseif rm then
@@ -248,7 +289,7 @@ local function GatherCandidates()
           if kind=="food" then
             score = FoodScore(score, wellFed, hasWellFed, conjured)
           end
-          table.insert(c[kind], { id=id, bag=bag, slot=slot, score=score })
+          table.insert(c[kind], { id=id, bag=bag, slot=slot, score=score, hs=isHealthstone and true or false })
         end
       end
     end
@@ -284,8 +325,25 @@ local function PickPotionSmart(list, missing)
     end
   end
 
-  if bestBelow then return bestBelow end
-  return bestAbove
+  local chosen = bestBelow or bestAbove
+  if not chosen then return nil end
+
+  -- Option A: Prefer Healthstone only when it heals LESS than the chosen potion.
+  local bestStone = nil
+  for i=1, table.getn(list) do
+    local it = list[i]
+    if it.hs then
+      if (not bestStone) or it.score > bestStone.score then
+        bestStone = it
+      end
+    end
+  end
+
+  if bestStone and bestStone.score < chosen.score then
+    return bestStone
+  end
+
+  return chosen
 end
 
 local function ScanBest()
@@ -398,8 +456,8 @@ local function Report()
   end
   report("food","Food")
   report("water","Drink")
-  report("hpotion","Health Potion")
-  report("mpotion","Mana Potion")
+  report("hpotion","Health")
+  report("mpotion","Mana")
 end
 
 local f=CreateFrame("Frame")
